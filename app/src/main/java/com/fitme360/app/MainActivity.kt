@@ -30,17 +30,32 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraExecutor: ExecutorService
     private var poseLandmarkerHelper: PoseLandmarkerHelper? = null
+    private var cameraProvider: ProcessCameraProvider? = null
 
     private var latestFrame: Bitmap? = null
     private var latestResult: PoseLandmarkerResult? = null
     private var frameW = 0
     private var frameH = 0
     private var debugMode = true
+    private var useFrontCamera = true
+
+    // --- Slider range constants ---------------------------------------------
+    // Collar/waistband offset: allows pushing the garment UP (positive) or
+    // DOWN (negative) relative to the raw landmark line, not just up.
+    private val topOffsetMin = -0.30f
+    private val topOffsetMax = 0.50f
+    private val topOffsetSpan = topOffsetMax - topOffsetMin // 0.80 -> seek max = 80
+
+    // Garment size: widened so garments can be enlarged a lot more than before.
+    private val scaleMin = 0.5f
+    private val scaleMax = 3.0f
+    private val scaleSpan = scaleMax - scaleMin // 2.5 -> seek max = 250
+    // -------------------------------------------------------------------------
 
     // Keeps a short history of recent frames keyed by the timestamp they were
     // sent to the pose model with, so we can pair each result with the EXACT
     // frame it was computed from instead of whatever the newest frame is by
-    // the time the (async) result arrives. Fixes the shirt "lagging behind"
+    // the time the (async) result arrives. Fixes the garment "lagging behind"
     // the body during movement.
     private val frameCache = java.util.Collections.synchronizedMap(
         object : LinkedHashMap<Long, Bitmap>(16, 0.75f, false) {
@@ -52,7 +67,7 @@ class MainActivity : AppCompatActivity() {
 
     private val pickImageLauncher =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-            uri?.let { loadShirtFromUri(it) }
+            uri?.let { loadGarmentFromUri(it) }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -74,13 +89,22 @@ class MainActivity : AppCompatActivity() {
             binding.statusText.text = "Pose model failed to load: ${e.message}"
         }
 
-        binding.pickShirtButton.setOnClickListener { pickImageLauncher.launch("image/*") }
+        binding.pickGarmentButton.setOnClickListener { pickImageLauncher.launch("image/*") }
         binding.debugToggleButton.setOnClickListener {
             debugMode = !debugMode
             binding.overlayView.debugMode = debugMode
             binding.debugToggleButton.text = if (debugMode) "Debug: ON" else "Debug: OFF"
         }
         binding.overlayView.debugMode = debugMode
+
+        binding.switchCameraButton.setOnClickListener {
+            useFrontCamera = !useFrontCamera
+            bindCamera()
+        }
+
+        binding.upperBodyButton.setOnClickListener { selectGarmentType(GarmentType.UPPER) }
+        binding.lowerBodyButton.setOnClickListener { selectGarmentType(GarmentType.LOWER) }
+        selectGarmentType(GarmentType.UPPER)
 
         setupAdjustSliders()
 
@@ -102,60 +126,74 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun selectGarmentType(type: GarmentType) {
+        binding.overlayView.garmentType = type
+        val selected = "#4CAF50".toColorInt()
+        val unselected = "#555555".toColorInt()
+        binding.upperBodyButton.backgroundTintList =
+            android.content.res.ColorStateList.valueOf(if (type == GarmentType.UPPER) selected else unselected)
+        binding.lowerBodyButton.backgroundTintList =
+            android.content.res.ColorStateList.valueOf(if (type == GarmentType.LOWER) selected else unselected)
+    }
+
     /**
-     * Wires the two on-screen sliders to the live tuning knobs on
+     * Wires the three on-screen sliders to the live tuning knobs on
      * ClothOverlayView, so the fit can be adjusted while watching the camera
      * preview instead of hard-coding numbers and rebuilding the app.
      */
     private fun setupAdjustSliders() {
-        // topOffsetRatio: 0.00 - 0.50 (progress steps of 0.01)
-        binding.topOffsetSeekBar.progress = (binding.overlayView.topOffsetRatio * 100).toInt()
-        binding.topOffsetLabel.text = "ارتفاع یقه: %.2f".format(binding.overlayView.topOffsetRatio)
+        // topOffsetRatio: topOffsetMin..topOffsetMax (steps of 0.01)
+        val topOffsetSeekMax = (topOffsetSpan * 100).toInt()
+        binding.topOffsetSeekBar.max = topOffsetSeekMax
+        binding.topOffsetSeekBar.progress = ((binding.overlayView.topOffsetRatio - topOffsetMin) * 100).toInt()
+        binding.topOffsetLabel.text = "Collar/Waist Offset: %.2f".format(binding.overlayView.topOffsetRatio)
         binding.topOffsetSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val ratio = progress / 100f
+                val ratio = topOffsetMin + progress / 100f
                 binding.overlayView.topOffsetRatio = ratio
-                binding.topOffsetLabel.text = "ارتفاع یقه: %.2f".format(ratio)
+                binding.topOffsetLabel.text = "Collar/Waist Offset: %.2f".format(ratio)
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        // garmentScaleX: 0.80x - 1.50x (progress steps of 0.01, offset by 0.80)
-        val scaleBase = 0.8f
-        binding.garmentScaleXSeekBar.progress = ((binding.overlayView.garmentScaleX - scaleBase) * 100).toInt()
-        binding.garmentScaleXLabel.text = "پهنای لباس: %.2fx".format(binding.overlayView.garmentScaleX)
+        // garmentScaleX: scaleMin..scaleMax (steps of 0.01)
+        val scaleSeekMax = (scaleSpan * 100).toInt()
+        binding.garmentScaleXSeekBar.max = scaleSeekMax
+        binding.garmentScaleXSeekBar.progress = ((binding.overlayView.garmentScaleX - scaleMin) * 100).toInt()
+        binding.garmentScaleXLabel.text = "Garment Width: %.2fx".format(binding.overlayView.garmentScaleX)
         binding.garmentScaleXSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val scale = scaleBase + progress / 100f
+                val scale = scaleMin + progress / 100f
                 binding.overlayView.garmentScaleX = scale
-                binding.garmentScaleXLabel.text = "پهنای لباس: %.2fx".format(scale)
+                binding.garmentScaleXLabel.text = "Garment Width: %.2fx".format(scale)
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        // garmentScaleY: 0.80x - 1.50x (progress steps of 0.01, offset by 0.80)
-        binding.garmentScaleYSeekBar.progress = ((binding.overlayView.garmentScaleY - scaleBase) * 100).toInt()
-        binding.garmentScaleYLabel.text = "ارتفاع لباس: %.2fx".format(binding.overlayView.garmentScaleY)
+        // garmentScaleY: scaleMin..scaleMax (steps of 0.01)
+        binding.garmentScaleYSeekBar.max = scaleSeekMax
+        binding.garmentScaleYSeekBar.progress = ((binding.overlayView.garmentScaleY - scaleMin) * 100).toInt()
+        binding.garmentScaleYLabel.text = "Garment Height: %.2fx".format(binding.overlayView.garmentScaleY)
         binding.garmentScaleYSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val scale = scaleBase + progress / 100f
+                val scale = scaleMin + progress / 100f
                 binding.overlayView.garmentScaleY = scale
-                binding.garmentScaleYLabel.text = "ارتفاع لباس: %.2fx".format(scale)
+                binding.garmentScaleYLabel.text = "Garment Height: %.2fx".format(scale)
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
     }
 
-    private fun loadShirtFromUri(uri: Uri) {
+    private fun loadGarmentFromUri(uri: Uri) {
         try {
             contentResolver.openInputStream(uri).use { input ->
                 val bmp = BitmapFactory.decodeStream(input)
                     ?: throw IllegalStateException("decodeStream returned null for $uri")
-                binding.overlayView.setShirt(bmp)
-                binding.statusText.text = "Shirt loaded: ${bmp.width}x${bmp.height}"
+                binding.overlayView.setGarment(bmp)
+                binding.statusText.text = "Garment loaded: ${bmp.width}x${bmp.height}"
             }
         } catch (e: Exception) {
             binding.statusText.text = "Failed to load picked image: ${e.message}"
@@ -165,21 +203,36 @@ class MainActivity : AppCompatActivity() {
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
-
-            val imageAnalysis = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-
-            imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                processFrame(imageProxy)
-            }
-
-            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
-
-            cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(this, cameraSelector, imageAnalysis)
+            cameraProvider = cameraProviderFuture.get()
+            bindCamera()
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    /** (Re)binds the camera use cases with whichever lens is currently selected. */
+    private fun bindCamera() {
+        val provider = cameraProvider ?: return
+
+        val imageAnalysis = ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .build()
+
+        imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
+            processFrame(imageProxy)
+        }
+
+        val cameraSelector = if (useFrontCamera) {
+            CameraSelector.DEFAULT_FRONT_CAMERA
+        } else {
+            CameraSelector.DEFAULT_BACK_CAMERA
+        }
+
+        try {
+            provider.unbindAll()
+            provider.bindToLifecycle(this, cameraSelector, imageAnalysis)
+            binding.switchCameraButton.text = if (useFrontCamera) "Camera: Front" else "Camera: Back"
+        } catch (e: Exception) {
+            binding.statusText.text = "Camera bind failed: ${e.message}"
+        }
     }
 
     /**
@@ -224,6 +277,9 @@ class MainActivity : AppCompatActivity() {
         poseLandmarkerHelper?.close()
     }
 }
+
+/** Small local helper so we don't need to pull in androidx.core-ktx's graphics extensions. */
+private fun String.toColorInt(): Int = android.graphics.Color.parseColor(this)
 
 /** Converts a YUV_420_888 ImageProxy from CameraX into an ARGB Bitmap. */
 private fun ImageProxy.toBitmapOrNull(): Bitmap? {

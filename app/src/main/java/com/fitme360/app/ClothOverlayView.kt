@@ -36,6 +36,17 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
     // their raw X positions directly).
     var bottomWidthRatio = 0.92f       // desired bottom width, as a fraction of shoulder width
     var bottomOvershootRatio = 0f      // optional small extension below the hip line, 0 = exact
+
+    // How far above the shoulder landmarks the collar should start, as a
+    // fraction of shoulder width. 0 = collar sits exactly on the shoulder
+    // line (old behavior). Increase to raise the shirt so it covers the
+    // neck/collarbone area properly instead of starting mid-shoulder.
+    var topOffsetRatio = 0.15f
+
+    // Overall size multiplier for the whole fitted garment, applied around
+    // the quad's own center so it grows/shrinks evenly in every direction.
+    // 1.0 = exact fit to the computed quad, 1.15 = 15% bigger/looser, etc.
+    var garmentScale = 1.0f
     // -------------------------------------------------------------------------
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -145,8 +156,15 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
         // landmark can end up on either side of the screen. Always pick
         // whichever point actually has the smaller X as the screen-left
         // corner, or the quad can self-cross into a bowtie shape.
-        val (topLeft, topRight) = if (ls[0] <= rs[0]) ls to rs else rs to ls
+        val (rawTopLeft, rawTopRight) = if (ls[0] <= rs[0]) ls to rs else rs to ls
         val (screenLeftHipY, screenRightHipY) = if (lh[0] <= rh[0]) lh[1] to rh[1] else rh[1] to lh[1]
+
+        // Raise the collar above the raw shoulder landmarks so the shirt
+        // starts a bit higher (covers the neck/collarbone) instead of
+        // starting exactly at the shoulder joint.
+        val topOffset = shoulderWidth * topOffsetRatio
+        val topLeft = floatArrayOf(rawTopLeft[0], rawTopLeft[1] - topOffset)
+        val topRight = floatArrayOf(rawTopRight[0], rawTopRight[1] - topOffset)
 
         // Bottom corners: Y comes from each hip landmark; X is centered on the
         // hip midpoint with a width equal to bottomWidthRatio * shoulderWidth,
@@ -156,6 +174,22 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
         val bottomOvershoot = shoulderWidth * bottomOvershootRatio
         val bottomLeft = floatArrayOf(hipCenterX - desiredBottomWidth / 2f, screenLeftHipY + bottomOvershoot)
         val bottomRight = floatArrayOf(hipCenterX + desiredBottomWidth / 2f, screenRightHipY + bottomOvershoot)
+
+        // Scale the whole quad up/down around its own center so garmentScale
+        // makes the shirt bigger or smaller while keeping it centered on the
+        // body, instead of shifting it off to one side.
+        if (garmentScale != 1.0f) {
+            val centerX = (topLeft[0] + topRight[0] + bottomLeft[0] + bottomRight[0]) / 4f
+            val centerY = (topLeft[1] + topRight[1] + bottomLeft[1] + bottomRight[1]) / 4f
+            fun scaleAroundCenter(p: FloatArray) {
+                p[0] = centerX + (p[0] - centerX) * garmentScale
+                p[1] = centerY + (p[1] - centerY) * garmentScale
+            }
+            scaleAroundCenter(topLeft)
+            scaleAroundCenter(topRight)
+            scaleAroundCenter(bottomLeft)
+            scaleAroundCenter(bottomRight)
+        }
 
         if (debugMode) {
             val path = android.graphics.Path().apply {

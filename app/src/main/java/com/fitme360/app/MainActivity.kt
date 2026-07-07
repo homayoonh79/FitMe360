@@ -10,6 +10,7 @@ import android.graphics.Rect
 import android.graphics.YuvImage
 import android.net.Uri
 import android.os.Bundle
+import android.widget.SeekBar
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
@@ -81,6 +82,8 @@ class MainActivity : AppCompatActivity() {
         }
         binding.overlayView.debugMode = debugMode
 
+        setupAdjustSliders()
+
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
         ) {
@@ -97,6 +100,40 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == 10 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
             startCamera()
         }
+    }
+
+    /**
+     * Wires the two on-screen sliders to the live tuning knobs on
+     * ClothOverlayView, so the fit can be adjusted while watching the camera
+     * preview instead of hard-coding numbers and rebuilding the app.
+     */
+    private fun setupAdjustSliders() {
+        // topOffsetRatio: 0.00 - 0.50 (progress steps of 0.01)
+        binding.topOffsetSeekBar.progress = (binding.overlayView.topOffsetRatio * 100).toInt()
+        binding.topOffsetLabel.text = "ارتفاع یقه: %.2f".format(binding.overlayView.topOffsetRatio)
+        binding.topOffsetSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val ratio = progress / 100f
+                binding.overlayView.topOffsetRatio = ratio
+                binding.topOffsetLabel.text = "ارتفاع یقه: %.2f".format(ratio)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        // garmentScale: 0.80x - 1.50x (progress steps of 0.01, offset by 0.80)
+        val scaleBase = 0.8f
+        binding.garmentScaleSeekBar.progress = ((binding.overlayView.garmentScale - scaleBase) * 100).toInt()
+        binding.garmentScaleLabel.text = "اندازه لباس: %.2fx".format(binding.overlayView.garmentScale)
+        binding.garmentScaleSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val scale = scaleBase + progress / 100f
+                binding.overlayView.garmentScale = scale
+                binding.garmentScaleLabel.text = "اندازه لباس: %.2fx".format(scale)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
     }
 
     private fun loadShirtFromUri(uri: Uri) {

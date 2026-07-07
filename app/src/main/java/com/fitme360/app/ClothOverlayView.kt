@@ -43,10 +43,13 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
     // neck/collarbone area properly instead of starting mid-shoulder.
     var topOffsetRatio = 0.15f
 
-    // Overall size multiplier for the whole fitted garment, applied around
-    // the quad's own center so it grows/shrinks evenly in every direction.
-    // 1.0 = exact fit to the computed quad, 1.15 = 15% bigger/looser, etc.
-    var garmentScale = 1.0f
+    // Independent size multipliers for the fitted garment, applied around
+    // the quad's own center. 1.0 = exact fit to the computed quad.
+    // garmentScaleX changes only the width (how far the shirt reaches
+    // toward/past the arms), garmentScaleY changes only the height (how
+    // long the shirt is, top to bottom), so they can be tuned separately.
+    var garmentScaleX = 1.0f
+    var garmentScaleY = 1.0f
     // -------------------------------------------------------------------------
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -175,15 +178,15 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
         val bottomLeft = floatArrayOf(hipCenterX - desiredBottomWidth / 2f, screenLeftHipY + bottomOvershoot)
         val bottomRight = floatArrayOf(hipCenterX + desiredBottomWidth / 2f, screenRightHipY + bottomOvershoot)
 
-        // Scale the whole quad up/down around its own center so garmentScale
-        // makes the shirt bigger or smaller while keeping it centered on the
-        // body, instead of shifting it off to one side.
-        if (garmentScale != 1.0f) {
+        // Scale the whole quad up/down around its own center so the garment
+        // grows/shrinks while staying centered on the body. X and Y are
+        // scaled independently so width and height/length can be tuned apart.
+        if (garmentScaleX != 1.0f || garmentScaleY != 1.0f) {
             val centerX = (topLeft[0] + topRight[0] + bottomLeft[0] + bottomRight[0]) / 4f
             val centerY = (topLeft[1] + topRight[1] + bottomLeft[1] + bottomRight[1]) / 4f
             fun scaleAroundCenter(p: FloatArray) {
-                p[0] = centerX + (p[0] - centerX) * garmentScale
-                p[1] = centerY + (p[1] - centerY) * garmentScale
+                p[0] = centerX + (p[0] - centerX) * garmentScaleX
+                p[1] = centerY + (p[1] - centerY) * garmentScaleY
             }
             scaleAroundCenter(topLeft)
             scaleAroundCenter(topRight)

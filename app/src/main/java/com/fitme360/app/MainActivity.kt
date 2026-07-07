@@ -121,15 +121,28 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        // garmentScale: 0.80x - 1.50x (progress steps of 0.01, offset by 0.80)
+        // garmentScaleX: 0.80x - 1.50x (progress steps of 0.01, offset by 0.80)
         val scaleBase = 0.8f
-        binding.garmentScaleSeekBar.progress = ((binding.overlayView.garmentScale - scaleBase) * 100).toInt()
-        binding.garmentScaleLabel.text = "اندازه لباس: %.2fx".format(binding.overlayView.garmentScale)
-        binding.garmentScaleSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        binding.garmentScaleXSeekBar.progress = ((binding.overlayView.garmentScaleX - scaleBase) * 100).toInt()
+        binding.garmentScaleXLabel.text = "پهنای لباس: %.2fx".format(binding.overlayView.garmentScaleX)
+        binding.garmentScaleXSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 val scale = scaleBase + progress / 100f
-                binding.overlayView.garmentScale = scale
-                binding.garmentScaleLabel.text = "اندازه لباس: %.2fx".format(scale)
+                binding.overlayView.garmentScaleX = scale
+                binding.garmentScaleXLabel.text = "پهنای لباس: %.2fx".format(scale)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        // garmentScaleY: 0.80x - 1.50x (progress steps of 0.01, offset by 0.80)
+        binding.garmentScaleYSeekBar.progress = ((binding.overlayView.garmentScaleY - scaleBase) * 100).toInt()
+        binding.garmentScaleYLabel.text = "ارتفاع لباس: %.2fx".format(binding.overlayView.garmentScaleY)
+        binding.garmentScaleYSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val scale = scaleBase + progress / 100f
+                binding.overlayView.garmentScaleY = scale
+                binding.garmentScaleYLabel.text = "ارتفاع لباس: %.2fx".format(scale)
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}

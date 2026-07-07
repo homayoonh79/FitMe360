@@ -41,14 +41,28 @@
             android:progress="15" />
 
         <TextView
-            android:id="@+id/garmentScaleLabel"
+            android:id="@+id/garmentScaleXLabel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="#FFFFFF"
-            android:text="اندازه لباس: 1.00x" />
+            android:text="پهنای لباس: 1.00x" />
 
         <SeekBar
-            android:id="@+id/garmentScaleSeekBar"
+            android:id="@+id/garmentScaleXSeekBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="70"
+            android:progress="20" />
+
+        <TextView
+            android:id="@+id/garmentScaleYLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:text="ارتفاع لباس: 1.00x" />
+
+        <SeekBar
+            android:id="@+id/garmentScaleYSeekBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:max="70"

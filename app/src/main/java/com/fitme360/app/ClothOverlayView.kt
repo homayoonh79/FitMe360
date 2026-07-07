@@ -140,9 +140,13 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
 
         val shoulderWidth = kotlin.math.hypot((rs[0] - ls[0]).toDouble(), (rs[1] - ls[1]).toDouble()).toFloat()
 
-        // Top corners: exactly the shoulder landmarks, no padding.
-        val topLeft = ls
-        val topRight = rs
+        // Don't trust the model's anatomical "left/right" labels for screen
+        // position - depending on camera mirroring, the "left shoulder"
+        // landmark can end up on either side of the screen. Always pick
+        // whichever point actually has the smaller X as the screen-left
+        // corner, or the quad can self-cross into a bowtie shape.
+        val (topLeft, topRight) = if (ls[0] <= rs[0]) ls to rs else rs to ls
+        val (screenLeftHipY, screenRightHipY) = if (lh[0] <= rh[0]) lh[1] to rh[1] else rh[1] to lh[1]
 
         // Bottom corners: Y comes from each hip landmark; X is centered on the
         // hip midpoint with a width equal to bottomWidthRatio * shoulderWidth,
@@ -150,8 +154,8 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
         val desiredBottomWidth = shoulderWidth * bottomWidthRatio
         val hipCenterX = (lh[0] + rh[0]) / 2f
         val bottomOvershoot = shoulderWidth * bottomOvershootRatio
-        val bottomLeft = floatArrayOf(hipCenterX - desiredBottomWidth / 2f, lh[1] + bottomOvershoot)
-        val bottomRight = floatArrayOf(hipCenterX + desiredBottomWidth / 2f, rh[1] + bottomOvershoot)
+        val bottomLeft = floatArrayOf(hipCenterX - desiredBottomWidth / 2f, screenLeftHipY + bottomOvershoot)
+        val bottomRight = floatArrayOf(hipCenterX + desiredBottomWidth / 2f, screenRightHipY + bottomOvershoot)
 
         if (debugMode) {
             val path = android.graphics.Path().apply {

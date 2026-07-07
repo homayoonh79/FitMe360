@@ -29,16 +29,13 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
     private var imageHeight = 1
 
     // --- Fit tuning knobs ---------------------------------------------------
-    // These are the main values to tweak if the shirt still looks too
-    // wide/narrow or sits too high/low. Adjust in small steps (0.02-0.05).
-    var shoulderPaddingRatio = 0.18f   // extra width added past each shoulder point
-    var topPaddingRatio = 0.08f        // how far the collar is pulled up above the shoulder line
-    var bottomOvershootRatio = 0.04f   // small overshoot below the hip line
-    // Hip LANDMARKS sit on the pelvis joint, which is anatomically much
-    // narrower than the visible torso/shoulder width - using them directly
-    // produces a narrow "pennant" shape. Instead we target the bottom width
-    // as a fraction of the shoulder width (most shirts don't taper much).
+    // The quad corners are now exact: top corners = shoulder landmarks
+    // (no padding), bottom corners = hip landmarks' Y with X computed so the
+    // bottom width is a fraction of shoulder width (hip-joint landmarks are
+    // anatomically much narrower than the visible torso, so we don't use
+    // their raw X positions directly).
     var bottomWidthRatio = 0.92f       // desired bottom width, as a fraction of shoulder width
+    var bottomOvershootRatio = 0f      // optional small extension below the hip line, 0 = exact
     // -------------------------------------------------------------------------
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -142,21 +139,19 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
         }
 
         val shoulderWidth = kotlin.math.hypot((rs[0] - ls[0]).toDouble(), (rs[1] - ls[1]).toDouble()).toFloat()
-        val hipWidth = kotlin.math.hypot((rh[0] - lh[0]).toDouble(), (rh[1] - lh[1]).toDouble()).toFloat()
 
-        val pad = shoulderWidth * shoulderPaddingRatio
-        val topPad = shoulderWidth * topPaddingRatio
-        val bottomOvershoot = shoulderWidth * bottomOvershootRatio
+        // Top corners: exactly the shoulder landmarks, no padding.
+        val topLeft = ls
+        val topRight = rs
 
-        // Target bottom width as a fraction of shoulder width, since the raw
-        // hip-joint landmarks are much narrower than the visible torso.
+        // Bottom corners: Y comes from each hip landmark; X is centered on the
+        // hip midpoint with a width equal to bottomWidthRatio * shoulderWidth,
+        // since the raw hip-joint landmarks are much narrower than the torso.
         val desiredBottomWidth = shoulderWidth * bottomWidthRatio
-        val hipPad = ((desiredBottomWidth - hipWidth) / 2f).coerceAtLeast(0f)
-
-        val topLeft = floatArrayOf(ls[0] - pad, ls[1] - topPad)
-        val topRight = floatArrayOf(rs[0] + pad, rs[1] - topPad)
-        val bottomLeft = floatArrayOf(lh[0] - hipPad, lh[1] + bottomOvershoot)
-        val bottomRight = floatArrayOf(rh[0] + hipPad, rh[1] + bottomOvershoot)
+        val hipCenterX = (lh[0] + rh[0]) / 2f
+        val bottomOvershoot = shoulderWidth * bottomOvershootRatio
+        val bottomLeft = floatArrayOf(hipCenterX - desiredBottomWidth / 2f, lh[1] + bottomOvershoot)
+        val bottomRight = floatArrayOf(hipCenterX + desiredBottomWidth / 2f, rh[1] + bottomOvershoot)
 
         if (debugMode) {
             val path = android.graphics.Path().apply {
@@ -167,7 +162,7 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
                 close()
             }
             canvas.drawPath(path, quadPaint)
-            drawDebugLine(canvas, 6, "shoulderPx=${shoulderWidth.toInt()} hipPx=${hipWidth.toInt()} hipPad=${hipPad.toInt()} scale=${"%.2f".format(scale)}")
+            drawDebugLine(canvas, 6, "shoulderPx=${shoulderWidth.toInt()} bottomWidthPx=${desiredBottomWidth.toInt()} scale=${"%.2f".format(scale)}")
             val shirt = shirtBitmap
             drawDebugLine(canvas, 7, "shirtBitmap=${if (shirt == null) "NULL (pick one!)" else "${shirt.width}x${shirt.height}"}")
         }

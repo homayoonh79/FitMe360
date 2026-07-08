@@ -64,6 +64,15 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
     // the quad's own center. 1.0 = exact fit to the computed quad.
     var garmentScaleX = 1.0f
     var garmentScaleY = 1.0f
+
+    // Independent width multipliers for the top edge and bottom edge of the
+    // quad, each applied around that edge's own horizontal midpoint (so the
+    // edge stays centered on the body while it widens/narrows). Mainly useful
+    // for OVERALL garments (overalls, jumpsuits, dresses) where the shoulder
+    // width and ankle-hem width often need to flare/taper differently than
+    // the raw body landmarks give you. 1.0 = no change.
+    var topWidthScale = 1.0f
+    var bottomWidthScale = 1.0f
     // -------------------------------------------------------------------------
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -198,6 +207,19 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
         val bottomOvershoot = topWidth * bottomOvershootRatio
         val bottomLeft = floatArrayOf(bottomCenterX - desiredBottomWidth / 2f, screenLeftBottomY + bottomOvershoot)
         val bottomRight = floatArrayOf(bottomCenterX + desiredBottomWidth / 2f, screenRightBottomY + bottomOvershoot)
+
+        // Independently widen/narrow the top edge and bottom edge relative to
+        // each other, each scaled around its own horizontal midpoint so the
+        // edge stays centered on the body. This is what lets an OVERALL
+        // garment's shoulder width and ankle-hem width be tuned separately.
+        fun scaleEdgeWidth(left: FloatArray, right: FloatArray, factor: Float) {
+            if (factor == 1.0f) return
+            val midX = (left[0] + right[0]) / 2f
+            left[0] = midX + (left[0] - midX) * factor
+            right[0] = midX + (right[0] - midX) * factor
+        }
+        scaleEdgeWidth(topLeft, topRight, topWidthScale)
+        scaleEdgeWidth(bottomLeft, bottomRight, bottomWidthScale)
 
         // Scale the whole quad up/down around its own center so the garment
         // grows/shrinks while staying centered on the body. X and Y are

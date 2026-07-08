@@ -54,8 +54,15 @@ class MainActivity : AppCompatActivity() {
 
     // Garment size: widened so garments can be enlarged a lot more than before.
     private val scaleMin = 0.5f
-    private val scaleMax = 3.0f
-    private val scaleSpan = scaleMax - scaleMin // 2.5 -> seek max = 250
+    private val scaleMax = 6.0f
+    private val scaleSpan = scaleMax - scaleMin // 5.5 -> seek max = 550
+
+    // Independent top-edge / bottom-edge width multipliers (mainly for
+    // OVERALL garments, where shoulder width and ankle-hem width often need
+    // to be tuned separately).
+    private val widthScaleMin = 0.3f
+    private val widthScaleMax = 2.0f
+    private val widthScaleSpan = widthScaleMax - widthScaleMin // 1.7 -> seek max = 170
     // -------------------------------------------------------------------------
 
     // Keeps a short history of recent frames keyed by the timestamp they were
@@ -153,6 +160,11 @@ class MainActivity : AppCompatActivity() {
             ColorStateList.valueOf(if (type == GarmentType.LOWER) selected else unselected)
         binding.overallBodyButton.backgroundTintList =
             ColorStateList.valueOf(if (type == GarmentType.OVERALL) selected else unselected)
+
+        // The independent top/bottom width sliders mainly matter for one-piece
+        // garments (overalls, jumpsuits, dresses) that span shoulders to ankles.
+        binding.overallWidthBar.visibility =
+            if (type == GarmentType.OVERALL) android.view.View.VISIBLE else android.view.View.GONE
     }
 
     private fun updateDebugButtonAppearance() {
@@ -210,6 +222,36 @@ class MainActivity : AppCompatActivity() {
                 val scale = scaleMin + progress / 100f
                 binding.overlayView.garmentScaleY = scale
                 binding.garmentScaleYLabel.text = "Garment Height: %.2fx".format(scale)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        // topWidthScale: widthScaleMin..widthScaleMax (steps of 0.01) - only
+        // shown/relevant for OVERALL garments, see selectGarmentType().
+        val widthScaleSeekMax = (widthScaleSpan * 100).toInt()
+        binding.topWidthSeekBar.max = widthScaleSeekMax
+        binding.topWidthSeekBar.progress = ((binding.overlayView.topWidthScale - widthScaleMin) * 100).toInt()
+        binding.topWidthLabel.text = "Top (Shoulder) Width: %.2fx".format(binding.overlayView.topWidthScale)
+        binding.topWidthSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val scale = widthScaleMin + progress / 100f
+                binding.overlayView.topWidthScale = scale
+                binding.topWidthLabel.text = "Top (Shoulder) Width: %.2fx".format(scale)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        // bottomWidthScale: widthScaleMin..widthScaleMax (steps of 0.01)
+        binding.bottomWidthSeekBar.max = widthScaleSeekMax
+        binding.bottomWidthSeekBar.progress = ((binding.overlayView.bottomWidthScale - widthScaleMin) * 100).toInt()
+        binding.bottomWidthLabel.text = "Bottom (Ankle) Width: %.2fx".format(binding.overlayView.bottomWidthScale)
+        binding.bottomWidthSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val scale = widthScaleMin + progress / 100f
+                binding.overlayView.bottomWidthScale = scale
+                binding.bottomWidthLabel.text = "Bottom (Ankle) Width: %.2fx".format(scale)
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}

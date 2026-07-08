@@ -1,16 +1,22 @@
 package com.fitme360.app
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.YuvImage
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.widget.SeekBar
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
@@ -36,7 +42,7 @@ class MainActivity : AppCompatActivity() {
     private var latestResult: PoseLandmarkerResult? = null
     private var frameW = 0
     private var frameH = 0
-    private var debugMode = true
+    private var debugMode = false
     private var useFrontCamera = true
 
     // --- Slider range constants ---------------------------------------------
@@ -90,20 +96,25 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.pickGarmentButton.setOnClickListener { pickImageLauncher.launch("image/*") }
+
         binding.debugToggleButton.setOnClickListener {
             debugMode = !debugMode
             binding.overlayView.debugMode = debugMode
-            binding.debugToggleButton.text = if (debugMode) "Debug: ON" else "Debug: OFF"
+            updateDebugButtonAppearance()
         }
         binding.overlayView.debugMode = debugMode
+        updateDebugButtonAppearance()
 
         binding.switchCameraButton.setOnClickListener {
             useFrontCamera = !useFrontCamera
             bindCamera()
         }
 
+        binding.capturePhotoButton.setOnClickListener { onCaptureClicked() }
+
         binding.upperBodyButton.setOnClickListener { selectGarmentType(GarmentType.UPPER) }
         binding.lowerBodyButton.setOnClickListener { selectGarmentType(GarmentType.LOWER) }
+        binding.overallBodyButton.setOnClickListener { selectGarmentType(GarmentType.OVERALL) }
         selectGarmentType(GarmentType.UPPER)
 
         setupAdjustSliders()
@@ -113,7 +124,7 @@ class MainActivity : AppCompatActivity() {
         ) {
             startCamera()
         } else {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), 10)
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA)
         }
     }
 
@@ -121,19 +132,37 @@ class MainActivity : AppCompatActivity() {
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 10 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-            startCamera()
+        val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+        when (requestCode) {
+            REQUEST_CAMERA -> if (granted) startCamera()
+            REQUEST_STORAGE -> if (granted) {
+                capturePhoto()
+            } else {
+                Toast.makeText(this, "Storage permission is needed to save the photo", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     private fun selectGarmentType(type: GarmentType) {
         binding.overlayView.garmentType = type
-        val selected = "#4CAF50".toColorInt()
-        val unselected = "#555555".toColorInt()
+        val selected = ContextCompat.getColor(this, R.color.accent_green)
+        val unselected = ContextCompat.getColor(this, R.color.pill_unselected)
         binding.upperBodyButton.backgroundTintList =
-            android.content.res.ColorStateList.valueOf(if (type == GarmentType.UPPER) selected else unselected)
+            ColorStateList.valueOf(if (type == GarmentType.UPPER) selected else unselected)
         binding.lowerBodyButton.backgroundTintList =
-            android.content.res.ColorStateList.valueOf(if (type == GarmentType.LOWER) selected else unselected)
+            ColorStateList.valueOf(if (type == GarmentType.LOWER) selected else unselected)
+        binding.overallBodyButton.backgroundTintList =
+            ColorStateList.valueOf(if (type == GarmentType.OVERALL) selected else unselected)
+    }
+
+    private fun updateDebugButtonAppearance() {
+        val color = if (debugMode) {
+            ContextCompat.getColor(this, R.color.accent_amber)
+        } else {
+            ContextCompat.getColor(this, R.color.accent_blue)
+        }
+        binding.debugToggleButton.backgroundTintList = ColorStateList.valueOf(color)
+        binding.debugToggleButton.text = if (debugMode) "Debug: ON" else "Debug: OFF"
     }
 
     /**
@@ -199,6 +228,70 @@ class MainActivity : AppCompatActivity() {
             binding.statusText.text = "Failed to load picked image: ${e.message}"
         }
     }
+
+    // --- Photo capture -------------------------------------------------------
+
+    /**
+     * Pre-Android-10 devices need the legacy WRITE_EXTERNAL_STORAGE permission
+     * to insert into MediaStore; API 29+ can insert without it (scoped storage).
+     */
+    private fun onCaptureClicked() {
+        val needsLegacyPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+            PackageManager.PERMISSION_GRANTED
+
+        if (needsLegacyPermission) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), REQUEST_STORAGE)
+        } else {
+            capturePhoto()
+        }
+    }
+
+    /** Rasterizes the overlay view (camera frame + warped garment) exactly as shown on screen. */
+    private fun capturePhoto() {
+        val view = binding.overlayView
+        if (view.width == 0 || view.height == 0) {
+            Toast.makeText(this, "Nothing to capture yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        view.draw(canvas)
+        saveBitmapToGallery(bitmap)
+    }
+
+    private fun saveBitmapToGallery(bitmap: Bitmap) {
+        val filename = "FitMe360_${System.currentTimeMillis()}.jpg"
+        try {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, filename)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/FitMe360")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+            }
+            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            if (uri == null) {
+                binding.statusText.text = "Failed to save photo"
+                return
+            }
+            contentResolver.openOutputStream(uri)?.use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                contentValues.clear()
+                contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+                contentResolver.update(uri, contentValues, null, null)
+            }
+            binding.statusText.text = "Photo saved to gallery"
+            Toast.makeText(this, "Saved to Pictures/FitMe360", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            binding.statusText.text = "Save failed: ${e.message}"
+        }
+    }
+
+    // --- Camera ---------------------------------------------------------------
 
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
@@ -276,10 +369,12 @@ class MainActivity : AppCompatActivity() {
         cameraExecutor.shutdown()
         poseLandmarkerHelper?.close()
     }
-}
 
-/** Small local helper so we don't need to pull in androidx.core-ktx's graphics extensions. */
-private fun String.toColorInt(): Int = android.graphics.Color.parseColor(this)
+    companion object {
+        private const val REQUEST_CAMERA = 10
+        private const val REQUEST_STORAGE = 20
+    }
+}
 
 /** Converts a YUV_420_888 ImageProxy from CameraX into an ARGB Bitmap. */
 private fun ImageProxy.toBitmapOrNull(): Bitmap? {

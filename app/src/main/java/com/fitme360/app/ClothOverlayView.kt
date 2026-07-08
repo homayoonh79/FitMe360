@@ -11,8 +11,14 @@ import android.view.View
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
 
-/** Which part of the body the currently loaded garment image should fit to. */
-enum class GarmentType { UPPER, LOWER }
+/**
+ * Which part of the body the currently loaded garment image should fit to.
+ * UPPER  -> shirts / t-shirts / jackets (shoulders -> hips)
+ * LOWER  -> pants / skirts (hips -> ankles)
+ * OVERALL -> one-piece garments that run the full length of the body, e.g.
+ *            overalls, jumpsuits, dresses, onesies (shoulders -> ankles)
+ */
+enum class GarmentType { UPPER, LOWER, OVERALL }
 
 /**
  * Draws the live camera frame and warps the chosen garment bitmap onto the
@@ -20,8 +26,9 @@ enum class GarmentType { UPPER, LOWER }
  *
  * UPPER garments (shirts, t-shirts) are fitted between the shoulder line and
  * the hip line. LOWER garments (pants, skirts) are fitted between the hip
- * line and the ankle line. Both cases reuse the same generic "top pair /
- * bottom pair" quad computation below.
+ * line and the ankle line. OVERALL garments (jumpsuits, overalls, dresses)
+ * are fitted between the shoulder line and the ankle line. All three cases
+ * reuse the same generic "top pair / bottom pair" quad computation below.
  */
 class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
 
@@ -39,11 +46,11 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
 
     // --- Fit tuning knobs ---------------------------------------------------
     // The quad's top corners come from the top landmark pair (shoulders for
-    // UPPER, hips for LOWER), and the bottom corners from the bottom pair
-    // (hips for UPPER, ankles for LOWER). Bottom width is expressed as a
-    // fraction of top width, since the raw bottom landmarks are anatomically
-    // narrower than the visible garment should be (hips vs. shoulders,
-    // ankles vs. hips).
+    // UPPER/OVERALL, hips for LOWER), and the bottom corners from the bottom
+    // pair (hips for UPPER, ankles for LOWER/OVERALL). Bottom width is
+    // expressed as a fraction of top width, since the raw bottom landmarks
+    // are anatomically narrower than the visible garment should be (hips vs.
+    // shoulders, ankles vs. hips/shoulders).
     var bottomWidthRatio = 0.92f       // desired bottom width, as a fraction of top width
     var bottomOvershootRatio = 0f      // optional small extension below the bottom line, 0 = exact
 
@@ -120,9 +127,9 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
             drawDebugText(canvas, landmarks)
         }
 
-        // UPPER needs landmarks up to the hips (index 24). LOWER needs
-        // landmarks up to the ankles (index 28).
-        val landmarksNeeded = if (garmentType == GarmentType.LOWER) 29 else 25
+        // UPPER needs landmarks up to the hips (index 24). LOWER and OVERALL
+        // need landmarks up to the ankles (index 28).
+        val landmarksNeeded = if (garmentType == GarmentType.UPPER) 25 else 29
         if (landmarks == null || landmarks.size < landmarksNeeded) {
             if (debugMode) {
                 drawDebugLine(canvas, 0, "NO POSE DETECTED (landmarks=${landmarks?.size ?: 0}, need=$landmarksNeeded)")
@@ -150,6 +157,7 @@ class ClothOverlayView(context: Context, attrs: AttributeSet? = null) : View(con
         val (topLm1, topLm2, bottomLm1, bottomLm2) = when (garmentType) {
             GarmentType.UPPER -> listOf(landmarks[11], landmarks[12], landmarks[23], landmarks[24])
             GarmentType.LOWER -> listOf(landmarks[23], landmarks[24], landmarks[27], landmarks[28])
+            GarmentType.OVERALL -> listOf(landmarks[11], landmarks[12], landmarks[27], landmarks[28])
         }
 
         val topA = toScreen(topLm1)
